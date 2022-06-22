@@ -5,7 +5,7 @@ FROM python:3.8-alpine
 WORKDIR /app
 
 # Copy the dependencies file to the working directory
-COPY ./* ./
+COPY ./ ./
 
 # Install any dependencies
 RUN apk update && apk upgrade && pwd && ls -al && \
