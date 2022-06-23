@@ -8,9 +8,20 @@ app = Flask(__name__)
 
 bucket = custombucket
 region = customregion
+secret_name = "RDSEndpoint"
+
+session = boto3.session.Session()
+client = session.client(
+    service_name='secretsmanager',
+    region_name=region
+)
+
+get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
 
 db_conn = connections.Connection(
-    host=customhost,
+    host=get_secret_value_response['SecretString'],
     port=3306,
     user=customuser,
     password=custompass,
