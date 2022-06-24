@@ -31,25 +31,25 @@ Resources:
       Type: AWS::ECS::Cluster
       Properties:
         ClusterName: EmpAppCluster
-    TaskDefinition:
-      Type: AWS::ECS::TaskDefinition
-      DependsOn: EmpAppRDS
-      Properties: 
-        NetworkMode: awsvpc
-        RequiresCompatibilities:
-          - FARGATE
-          Cpu: 256
-          Memory: 0.5GB
-        ExecutionRoleArn: arn:aws:iam::793465516547:role/EmpAppExecutionRole
-        TaskRoleArn: arn:aws:iam::793465516547:role/EmpAppTaskRole
-        ContainerDefinitions:
-        - Name: EmpAppService
-          Image: 793465516547.dkr.ecr.us-east-2.amazonaws.com/awsflaskdemo
-          PortMappings:
-            - ContainerPort: 
-            ContainerPort: 80
-            HostPort: 80
-            Protocol: TCP
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: EmpAppRDS
+    Properties: 
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+      - FARGATE
+      Cpu: 256
+      Memory: 0.5GB
+      ExecutionRoleArn: arn:aws:iam::793465516547:role/EmpAppExecutionRole
+      TaskRoleArn: arn:aws:iam::793465516547:role/EmpAppTaskRole
+      ContainerDefinitions:
+      - Name: EmpAppService
+        Image: 793465516547.dkr.ecr.us-east-2.amazonaws.com/awsflaskdemo
+        PortMappings:
+        - ContainerPort: 80
+          HostPort: 80
+          Protocol: TCP
 
   EmpAppRDS:
     Type: AWS::RDS::DBInstance
@@ -65,6 +65,7 @@ Resources:
       MasterUsername: admin
       MasterUserPassword: '{{resolve:secretsmanager:RDSPass:SecretString}}'
       StorageEncrypted: true
+      BackupRetentionPeriod: 0
   
   RDSEndpointSecret:
     Type: AWS::SecretsManager::Secret
@@ -92,5 +93,40 @@ Resources:
         - ServerSideEncryptionByDefault:
             SSEAlgorithm: AES256
 
+  RDSSetupFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: EmpAppRDS
+    Properties:
+      Handler: empAppRdsSetup.py
+      Role: arn:aws:iam::793465516547:role/EmpAppRdsSetupLambdaRole
+      Code:
+        S3Bucket: pcty-lambda-bucket
+        S3Key: empAppRdsSetup.zip
+      Runtime: python3.9
+      Timeout: 900
+      TracingConfig:
+        Mode: Active
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt EC2SecurityGroup.GroupId
+        SubnetIds:
+          - subnet-098188ccbe49d334b
+          - subnet-0d2b9e63cd65bc742
+          - subnet-074c5aa7a556836e7
 
+  RDSSetupTopic:
+    Type: AWS::SNS::Topic
 
+  RDSSetupFunctionSubsciptions:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref RDSSetupTopic
+      Endpoint: !GetAtt RDSSetupFunction.Arn
+      Protocol: lambda
+  
+  RDSCreatedNotification:
+    Type: Custom::NotifyRDSCreated
+    Version: '1.0'
+    DependsOn: RDSSetupFunction
+    Properties:
+      ServiceToken: !Ref RDSSetupTopic

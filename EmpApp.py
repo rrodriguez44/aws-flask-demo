@@ -16,19 +16,11 @@ client = session.client(
     region_name=region
 )
 
-get_rdsenpoint_secret_value_response = client.get_secret_value(
-    SecretId="RDSEndpoint"
-)
-
-get_rdspass_secret_value_response = client.get_secret_value(
-    SecretId="RDSPass"
-)
-
 db_conn = connections.Connection(
-    host=get_rdsenpoint_secret_value_response['SecretString'],
+    host=client.get_secret_value(SecretId="RDSEndpoint")['SecretString'],
     port=3306,
     user=customuser,
-    password=get_rdspass_secret_value_response['SecretString'],
+    password=client.get_secret_value(SecretId="RDSPass")['SecretString'],
     db=customdb
 
 )
