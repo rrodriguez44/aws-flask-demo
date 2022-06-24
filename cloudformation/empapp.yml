@@ -1,0 +1,103 @@
+Parameters:
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+  #our EC2 security group
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH and access to mysql db
+      SecurityGroupIngress:
+      - CidrIp: 172.31.0.0/16
+        FromPort: 3306
+        IpProtocol: tcp
+        ToPort: 3306
+      - CidrIp: 24.26.206.65/16
+        FromPort: 22
+        IpProtocol: tcp
+        ToPort: 22
+      - CidrIp: 24.26.206.65/16
+        FromPort: 80
+        IpProtocol: tcp
+        ToPort: 80
+      - CidrIp: 24.26.206.65/16
+        FromPort: 3306
+        IpProtocol: tcp
+        ToPort: 3306
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: EmpAppInstanceProfile
+      Roles:
+        - DemoRoleForEC2
+
+  EmpAppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: us-east-2b
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      SecurityGroups:
+        - !Ref EC2SecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      KeyName: EC2Tutorial
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y git
+          yum install -y docker
+          service docker start
+          sudo usermod -aG docker ec2-user
+          yum install -y mysql
+          mysql -h ${EmpAppRDS.Endpoint.Address} -u admin --password=$(aws secretsmanager get-secret-value --region us-east-2 --secret-id RDSPass --query SecretString --output text) employee -e "create database employee;"
+          mysql -h ${EmpAppRDS.Endpoint.Address} -u admin --password=$(aws secretsmanager get-secret-value --region us-east-2 --secret-id RDSPass --query SecretString --output text) employee -e "use employee; create table employee(empid varchar(20), fname varchar(20), lname varchar(20), pri_skill varchar(20), location varchar(20));"
+          aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 793465516547.dkr.ecr.us-east-2.amazonaws.com
+          docker run -p 80:80 793465516547.dkr.ecr.us-east-2.amazonaws.com/awsflaskdemo
+
+  EmpAppRDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AvailabilityZone: us-east-2b
+      DBName: employee
+      VPCSecurityGroups: 
+        - !GetAtt EC2SecurityGroup.GroupId
+      AllocatedStorage: '5'
+      DBInstanceClass: db.t3.micro
+      Engine: MySQL
+      EngineVersion: '8.0.17'
+      MasterUsername: admin
+      MasterUserPassword: '{{resolve:secretsmanager:RDSPass:SecretString}}'
+      StorageEncrypted: true
+  
+  RDSEndpointSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: RDSEndpoint
+      Description: This holds the rds enpoint to be used by the app after deployment
+      SecretString: !GetAtt EmpAppRDS.Endpoint.Address
+
+  RDSPassSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: RDSPass
+      Description: This holds the rds password to be used by cf and the app after deployment
+      GenerateSecretString:
+        ExcludeCharacters: '"@/\'
+        PasswordLength: 24
+
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: pcty-employee
+      AccessControl: Private
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration: 
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+
+
