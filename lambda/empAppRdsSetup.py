@@ -39,8 +39,7 @@ def handler(event, context):
     """
     logger.info("executing queries")
     with conn.cursor() as cur:
-        cur.execute("create database employee;")
-        logger.info("created database")
-        cur.execute("use employee; create table employee(empid varchar(20), fname varchar(20), lname varchar(20), pri_skill varchar(20), location varchar(20));")
+        cur.execute("use employee")
+        cur.execute("create table employee(empid varchar(20), fname varchar(20), lname varchar(20), pri_skill varchar(20), location varchar(20))")
         logger.info("created employee table")
         conn.commit()
