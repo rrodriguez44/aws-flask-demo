@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify, make_response
 from pymysql import connections
 import os
 import boto3
@@ -39,6 +39,11 @@ table = 'employee'
 @app.route("/", methods=['GET', 'POST'])
 def home():
     return render_template('AddEmp.html')
+
+@app.route("/health", methods=['GET', 'POST'])
+def home():
+    data = {'message': 'Healthy', 'code': 'SUCCESS'}
+    return make_response(jsonify(data), 200)
 
 
 @app.route("/about", methods=['POST'])

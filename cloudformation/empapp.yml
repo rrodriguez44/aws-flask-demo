@@ -43,27 +43,107 @@ Resources:
       Roles:
         - DemoRoleForEC2
 
-  EmpAppInstance:
-    Type: AWS::EC2::Instance
-    DependsOn: EmpAppRDS
+  EmpAppTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
     Properties:
-      AvailabilityZone: us-east-2b
-      ImageId: !Ref LatestAmiId
-      InstanceType: t2.micro
+      RequiresCompatibilities:
+      - FARGATE
+      ExecutionRoleArn: arn:aws:iam::793465516547:role/ecsTaskExecutionRole
+      TaskRoleArn: arn:aws:iam::793465516547:role/ecsTaskRole
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      ContainerDefinitions:
+        - Name: empAppTask
+          Image: 793465516547.dkr.ecr.us-east-2.amazonaws.com/awsflaskdemo
+          MemoryReservation: 256
+          Memory: 512
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref EmpAppLogGroup
+              awslogs-region: "us-east-2"
+              awslogs-stream-prefix: "ecs"
+
+  EmpAppLogGroup: 
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      RetentionInDays: 3
+
+  ECSCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterName: EmpAppFargateCluster
+
+  EmpAppFargateAlb:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: EmpAppFargateAlb
+      Subnets:
+        - subnet-098188ccbe49d334b
+        - subnet-0d2b9e63cd65bc742
+        - subnet-074c5aa7a556836e7
+      Type: application
       SecurityGroups:
-        - !Ref EC2SecurityGroup
-      IamInstanceProfile: !Ref EC2InstanceProfile
-      KeyName: EC2Tutorial
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          yum update -y
-          yum install -y git
-          yum install -y docker
-          service docker start
-          sudo usermod -aG docker ec2-user
-          aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 793465516547.dkr.ecr.us-east-2.amazonaws.com
-          docker run -p 80:80 793465516547.dkr.ecr.us-east-2.amazonaws.com/awsflaskdemo
+      - !GetAtt "EC2SecurityGroup.GroupId"
+
+  EmpAppFargateTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Name: EmpAppFargateTargetGroup
+      VpcId: vpc-0cbd436826c483d39
+      Protocol: HTTP
+      Port: 80
+      HealthCheckPath: /health/
+      TargetType: ip
+
+  Listener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref EmpAppFargateTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref EmpAppFargateAlb
+      Port: 80
+      Protocol: HTTP
+
+  Alb2FargateContainers:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: SG for traffic between ALB and containers
+      GroupName: Alb2FargateContainers
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          SourceSecurityGroupId: !GetAtt EC2SecurityGroup.GroupId
+          Description: 'Inbound rule for all traffic'
+
+  MyECSService:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      LaunchType: FARGATE
+      Cluster:
+        Ref: "ECSCluster"
+      DesiredCount: 1
+      TaskDefinition:
+        Ref: "EmpAppTaskDefinition"
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !GetAtt Alb2FargateContainers.GroupId
+          Subnets: ['subnet-098188ccbe49d334b','subnet-0d2b9e63cd65bc742','subnet-074c5aa7a556836e7']
+      LoadBalancers:
+        - TargetGroupArn:
+            Ref: EmpAppFargateTargetGroup
+          ContainerPort: 80
+          ContainerName: empAppTask
 
   EmpAppRDS:
     Type: AWS::RDS::DBInstance
