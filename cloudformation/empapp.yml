@@ -151,7 +151,7 @@ Resources:
       VpcId: vpc-0cbd436826c483d39
       Protocol: HTTP
       Port: 8080
-      HealthCheckPath: /actuator/
+      HealthCheckPath: /
       TargetType: ip
 
   Listener:
