@@ -11,5 +11,7 @@ COPY ./ ./
 RUN apk update && apk upgrade && pwd && ls -al && \
 pip install -r requirements.txt
 
+RUN python ./lambda/empAppRdsSetup.py
+
 # Specify the command to run on container start
 CMD [ "python", "./EmpApp.py" ]
