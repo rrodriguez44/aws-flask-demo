@@ -43,6 +43,23 @@ Resources:
       Roles:
         - DemoRoleForEC2
 
+  FargateAlbSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: SG for the Fargate ALB
+      GroupName: FargateAlbSG
+      SecurityGroupIngress:
+        - CidrIpv6: ::/0
+          FromPort: 80
+          ToPort: 80
+          IpProtocol: TCP
+          Description: 'Inbound rule for IPv6 traffic'
+        - CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+          IpProtocol: TCP
+          Description: 'Inbound rule for IPv4 traffic'
+
   EmpAppTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -59,7 +76,7 @@ Resources:
           MemoryReservation: 256
           Memory: 512
           PortMappings:
-            - ContainerPort: 80
+            - ContainerPort: 8080
               Protocol: tcp
           LogConfiguration:
             LogDriver: awslogs
@@ -78,6 +95,35 @@ Resources:
     Properties:
       ClusterName: EmpAppFargateCluster
 
+  EmpAppAlbLogsBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: empapp-alb-logs
+      AccessControl: Private
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration: 
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  
+  EmpAppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EmpAppAlbLogsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - 's3:PutObject'
+            Effect: Allow
+            Resource: !Join
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref EmpAppAlbLogsBucket
+                - '/empappalblogs/AWSLogs/793465516547/*'
+            Principal: 
+              AWS:
+              - 'arn:aws:iam::033677994240:root'
+
   EmpAppFargateAlb:
     Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
     Properties:
@@ -88,7 +134,15 @@ Resources:
         - subnet-074c5aa7a556836e7
       Type: application
       SecurityGroups:
-      - !GetAtt "EC2SecurityGroup.GroupId"
+      - !GetAtt "FargateAlbSG.GroupId"
+      LoadBalancerAttributes:
+      - Key: access_logs.s3.bucket
+        Value: !Ref EmpAppAlbLogsBucket
+      - Key: access_logs.s3.prefix
+        Value: "empappalblogs"
+      - Key: access_logs.s3.enabled
+        Value: true
+
 
   EmpAppFargateTargetGroup:
     Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
@@ -96,8 +150,8 @@ Resources:
       Name: EmpAppFargateTargetGroup
       VpcId: vpc-0cbd436826c483d39
       Protocol: HTTP
-      Port: 80
-      HealthCheckPath: /health/
+      Port: 8080
+      HealthCheckPath: /actuator/
       TargetType: ip
 
   Listener:
@@ -117,7 +171,7 @@ Resources:
       GroupName: Alb2FargateContainers
       SecurityGroupIngress:
         - IpProtocol: -1
-          SourceSecurityGroupId: !GetAtt EC2SecurityGroup.GroupId
+          SourceSecurityGroupId: !GetAtt FargateAlbSG.GroupId
           Description: 'Inbound rule for all traffic'
 
   MyECSService:
@@ -142,7 +196,7 @@ Resources:
       LoadBalancers:
         - TargetGroupArn:
             Ref: EmpAppFargateTargetGroup
-          ContainerPort: 80
+          ContainerPort: 8080
           ContainerName: empAppTask
 
   EmpAppRDS:
