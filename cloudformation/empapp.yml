@@ -36,13 +36,6 @@ Resources:
         IpProtocol: tcp
         ToPort: 3306
 
-  EC2InstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      InstanceProfileName: EmpAppInstanceProfile
-      Roles:
-        - DemoRoleForEC2
-
   FargateAlbSG:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -143,7 +136,6 @@ Resources:
       - Key: access_logs.s3.enabled
         Value: true
 
-
   EmpAppFargateTargetGroup:
     Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
     Properties:
@@ -176,7 +168,7 @@ Resources:
 
   MyECSService:
     Type: AWS::ECS::Service
-    DependsOn: Listener
+    DependsOn: [Listener, EmpAppRDS]
     Properties:
       LaunchType: FARGATE
       Cluster:
@@ -202,7 +194,6 @@ Resources:
   EmpAppRDS:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Delete
-    DependsOn: RDSSetupFunction
     Properties:
       AvailabilityZone: us-east-2b
       DBName: employee
@@ -241,66 +232,3 @@ Resources:
         ServerSideEncryptionConfiguration: 
         - ServerSideEncryptionByDefault:
             SSEAlgorithm: AES256
-          
-  RDSSetupFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      Handler: empAppRdsSetup.handler
-      Role: arn:aws:iam::793465516547:role/EmpAppRdsSetupLambdaRole
-      Code:
-        S3Bucket: pcty-lambda-bucket
-        S3Key: empAppRdsSetup.zip
-      Runtime: python3.9
-      Timeout: 900
-      TracingConfig:
-        Mode: Active
-      VpcConfig:
-        SecurityGroupIds:
-          - !GetAtt EC2SecurityGroup.GroupId
-        SubnetIds:
-          - subnet-098188ccbe49d334b
-          - subnet-0d2b9e63cd65bc742
-          - subnet-074c5aa7a556836e7
-
-  LambdaSecretsManagerVPCEndpoint:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      VpcEndpointType: Interface
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
-      VpcId: vpc-0cbd436826c483d39
-      SubnetIds: 
-        - subnet-098188ccbe49d334b
-        - subnet-0d2b9e63cd65bc742
-        - subnet-074c5aa7a556836e7
-      SecurityGroupIds:
-        - !GetAtt EC2SecurityGroup.GroupId
-      PrivateDnsEnabled: true
-
-  EventRule:
-    Type: "AWS::Events::Rule"
-    Properties:
-      Name: "detect-ec2-instance-start"
-      Description: "A CloudWatch Event Rule that detects start to EC2 Instances and publishes change events to an SNS topic for notification."
-      State: "ENABLED"
-      Targets:
-        - Arn:
-            !GetAtt RDSSetupFunction.Arn
-          Id: "target-id1"
-      EventPattern:
-        source: 
-        - "aws.ec2"
-        detail-type:
-        - "EC2 Instance State-change Notification"
-        detail:
-          state:
-          - "pending"
-
-  PermissionForEventsToInvokeLambda: 
-    Type: AWS::Lambda::Permission
-    Properties: 
-      FunctionName: 
-        !Ref RDSSetupFunction
-      Action: "lambda:InvokeFunction"
-      Principal: "events.amazonaws.com"
-      SourceArn: 
-        !GetAtt EventRule.Arn

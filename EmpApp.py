@@ -41,7 +41,7 @@ def home():
     return render_template('AddEmp.html')
 
 @app.route("/health", methods=['GET', 'POST'])
-def home():
+def health():
     data = {'message': 'Healthy', 'code': 'SUCCESS'}
     return make_response(jsonify(data), 200)
 
