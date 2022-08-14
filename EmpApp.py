@@ -3,6 +3,7 @@ from pymysql import connections
 import os
 import boto3
 from config import *
+from botocore.client import Config
 
 app = Flask(__name__)
 
@@ -11,9 +12,11 @@ region = customregion
 
 
 session = boto3.session.Session()
+config = Config(connect_timeout=1, retries={'max_attempts': 5})
 client = session.client(
     service_name='secretsmanager',
-    region_name=region
+    region_name=region,
+    config=config
 )
 
 get_rdsenpoint_secret_value_response = client.get_secret_value(
@@ -29,8 +32,8 @@ db_conn = connections.Connection(
     port=3306,
     user=customuser,
     password=get_rdspass_secret_value_response['SecretString'],
-    db=customdb
-
+    db=customdb,
+    connect_timeout=1
 )
 output = {}
 table = 'employee'

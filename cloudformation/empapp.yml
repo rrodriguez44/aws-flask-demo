@@ -19,19 +19,19 @@ Resources:
     Properties:
       GroupDescription: Enable SSH and access to mysql db
       SecurityGroupIngress:
-      - CidrIp: 172.31.0.0/16
+      - CidrIp: 172.31.0.0/32
         FromPort: 3306
         IpProtocol: tcp
         ToPort: 3306
-      - CidrIp: 24.26.206.65/16
+      - CidrIp: 24.26.206.65/32
         FromPort: 22
         IpProtocol: tcp
         ToPort: 22
-      - CidrIp: 24.26.206.65/16
+      - CidrIp: 24.26.206.65/32
         FromPort: 80
         IpProtocol: tcp
         ToPort: 80
-      - CidrIp: 24.26.206.65/16
+      - CidrIp: 24.26.206.65/32
         FromPort: 3306
         IpProtocol: tcp
         ToPort: 3306
@@ -42,11 +42,19 @@ Resources:
       GroupDescription: SG for the Fargate ALB
       GroupName: FargateAlbSG
       SecurityGroupIngress:
-        - CidrIp: 24.26.206.65/16
+        - CidrIp: 24.26.206.65/32
           FromPort: 80
           ToPort: 80
           IpProtocol: TCP
           Description: 'Inbound rule for IPv4 traffic'
+        - CidrIp: 172.31.0.0/16
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+        - CidrIp: 172.31.0.0/16
+          FromPort: 80
+          ToPort: 80
+          IpProtocol: TCP
 
   EmpAppTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -227,3 +235,69 @@ Resources:
         ServerSideEncryptionConfiguration: 
         - ServerSideEncryptionByDefault:
             SSEAlgorithm: AES256
+
+  RDSSetupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: empAppRdsSetup.handler
+      Role: arn:aws:iam::793465516547:role/EmpAppRdsSetupLambdaRole
+      Code:
+        S3Bucket: pcty-lambda-bucket
+        S3Key: empAppRdsSetup.zip
+      Runtime: python3.9
+      Timeout: 900
+      TracingConfig:
+        Mode: Active
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt EC2SecurityGroup.GroupId
+        SubnetIds:
+          - subnet-098188ccbe49d334b
+          - subnet-0d2b9e63cd65bc742
+          - subnet-074c5aa7a556836e7
+
+  LambdaSecretsManagerVPCEndpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      VpcEndpointType: Interface
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
+      VpcId: vpc-0cbd436826c483d39
+      SubnetIds: 
+        - subnet-098188ccbe49d334b
+        - subnet-0d2b9e63cd65bc742
+        - subnet-074c5aa7a556836e7
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      PrivateDnsEnabled: true
+
+  EventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: "detect-fargate-task-start"
+      Description: "A CloudWatch Event Rule that detects start to EC2 Instances and publishes change events to an SNS topic for notification."
+      State: "ENABLED"
+      Targets:
+        - Arn:
+            !GetAtt RDSSetupFunction.Arn
+          Id: "target-id1"
+      EventPattern:
+        source: 
+        - "aws.ecs"
+        detail-type:
+        - "ECS Task State Change"
+        detail:
+          containers:
+            containerArn: 
+            - prefix: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:container/empAppTask"
+            lastStatus:
+            - "PENDING"
+
+  PermissionForEventsToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        !Ref RDSSetupFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        !GetAtt EventRule.Arn
