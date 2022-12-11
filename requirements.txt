@@ -1,3 +1,5 @@
+--index-url https://artifact.paylocity.com/artifactory/api/pypi/pypi/simple
+
 flask==2.2.2
 pymysql==1.0.2
 boto3==1.26.27
